@@ -26,7 +26,8 @@ class AWSroute53Update:
     Optional:
     debugenable - Switch logging from INFO to DEBUG.  Default: INFO
     Example:
-        updater = AWSroute53Update('ABCDEFGHI', 'example.domain.com', 'SADIFHASDJFLKASOLDFJ', 'ASDFASDFASDF', debugenable=True)
+    updater =
+    AWSroute53Update('ABCDEFGHI', 'example.domain.com', 'SADIFHASDJFLKASOLDFJ', 'ASDFASDFASDF', debugenable=True)
     """
     def __init__(self, zoneid, domainname, awskey, awssecret, debugenable=False):
         self.logger = self.setup_logger(debugenable)
@@ -63,7 +64,9 @@ class AWSroute53Update:
         # so compare first to a DNS server if the IP changed
         resolved_ip = self.resolve_name_ip(self.domainname)
         if resolved_ip == current_ip:
-            self.logger.debug('DNS response (%s) and public IP (%s) are the same, nothing to do' % (resolved_ip, current_ip))
+            self.logger.debug(
+                'DNS response (%s) and public IP (%s) are the same, nothing to do' % (resolved_ip, current_ip)
+            )
             return
         conn = Route53Connection(aws_access_key_id=self.awskey, aws_secret_access_key=self.awssecret)
         try:
@@ -85,7 +88,7 @@ class AWSroute53Update:
                 change1.add_value(old_value)
             change2 = changes.add_change("CREATE", self.domainname, 'A', response.ttl)
             change2.add_value(current_ip)
-
+            commit = None
             try:
                 commit = changes.commit()
                 self.logger.debug('%s' % commit)
@@ -102,7 +105,9 @@ class AWSroute53Update:
                     change = conn.get_change(self.get_change_id(change['GetChangeResponse']))
                     self.logger.debug('%s' % change)
                 if self.get_change_status(change['GetChangeResponse']) == 'INSYNC':
-                    self.logger.info('Change %s A de %s -> %s' % (self.domainname, response.resource_records[0], current_ip))
+                    self.logger.info(
+                        'Change %s A de %s -> %s' % (self.domainname, response.resource_records[0], current_ip)
+                    )
                 else:
                     self.logger.warning('Unknown status for the change: %s' % change)
                     self.logger.debug('%s' % change)
@@ -111,11 +116,29 @@ class AWSroute53Update:
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('zoneid', help='Hosted Zone ID\nhttp://docs.aws.amazon.com/Route53/latest/DeveloperGuide/ListInfoOnHostedZone.html')
-    parser.add_argument('domainname', help='Domain name of the hosted zone to check/update\nhttp://docs.aws.amazon.com/Route53/latest/DeveloperGuide/AboutHZWorkingWith.html')
-    parser.add_argument('keyid', help='AWS access key ID')
-    parser.add_argument('keysecret', help='AWS secret access key')
-    parser.add_argument('-D','--debug', help="Increase logging to debug.", action="store_true")
+    parser.add_argument(
+        'zoneid',
+        help='Hosted Zone ID\n' +
+             'http://docs.aws.amazon.com/Route53/latest/DeveloperGuide/ListInfoOnHostedZone.html'
+    )
+    parser.add_argument(
+        'domainname',
+        help='Domain name of the hosted zone to check/update\n' +
+             'http://docs.aws.amazon.com/Route53/latest/DeveloperGuide/AboutHZWorkingWith.html'
+    )
+    parser.add_argument(
+        'keyid',
+        help='AWS access key ID'
+    )
+    parser.add_argument(
+        'keysecret',
+        help='AWS secret access key'
+    )
+    parser.add_argument(
+        '-D', '--debug',
+        help="Increase logging to debug.",
+        action="store_true"
+    )
     args = parser.parse_args()
     updater = AWSroute53Update(args.zoneid, args.domainname, args.keyid, args.keysecret, args.debug)
     updater.run()
