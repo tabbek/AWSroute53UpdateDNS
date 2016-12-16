@@ -33,10 +33,11 @@ class AWSroute53Update:
         self.logger = self.setup_logger(debugenable)
         self.zoneid = zoneid
         self.domainname = domainname
-        self.awskey = awskey
-        self.awssecret = awssecret
+        self.r53conn = Route53Connection(aws_access_key_id=awskey, aws_secret_access_key=awssecret)
         self.get_change_id = lambda response: response['ChangeInfo']['Id'].split('/')[-1]
         self.get_change_status = lambda response: response['ChangeInfo']['Status']
+        self.current_ip = None
+        self.resolved_ip = None
 
     def setup_logger(self, debugenable):
         logger = logging.getLogger(__name__)
@@ -57,60 +58,94 @@ class AWSroute53Update:
         answer = resolver.query(name)
         return answer.response.answer[0].items[0].address
 
-    def run(self):
-        # Get your ip using a public service
-        current_ip = urllib2.urlopen('http://ip.42.pl/raw').read()
-        # Avoid to hit the Route53 API if is not necessary.
-        # so compare first to a DNS server if the IP changed
-        resolved_ip = self.resolve_name_ip(self.domainname)
-        if resolved_ip == current_ip:
+    def curr_eq_expct_ip(self):
+        """
+        Compare external IP and IP from DNS
+        :return:
+        True - external IP and IP from DNS are the same
+        False - external IP and IP from DNS are different
+
+        """
+
+        # Edit as desired for other IP lookup services
+        self.current_ip = urllib2.urlopen('http://ip.42.pl/raw').read()
+        # Get DNS resolved IP
+        # Nameservers set in 'resolve_name_ip'
+        self.resolved_ip = self.resolve_name_ip(self.domainname)
+        if self.resolved_ip == self.current_ip:
             self.logger.debug(
-                'DNS response (%s) and public IP (%s) are the same, nothing to do' % (resolved_ip, current_ip)
+                'DNS response (%s) and public IP (%s) are the same' % (self.resolved_ip, self.current_ip)
             )
-            return
-        conn = Route53Connection(aws_access_key_id=self.awskey, aws_secret_access_key=self.awssecret)
+            return True
+        else:
+            self.logger.debug(
+                'DNS response (%s) and public IP (%s) are different' % (self.resolved_ip, self.current_ip)
+            )
+            return False
+
+    def get_zone_record(self):
+        """
+        Gets first A record for the zone
+        :return:
+        resource_record object on success
+        None on Zone not found
+        """
+
         try:
-            zone = conn.get_hosted_zone(self.zoneid)
+            zone = self.r53conn.get_hosted_zone(self.zoneid)
             self.logger.debug('Zone is (%s)' % zone)
         except DNSServerError:
             self.logger.error('%s Zone Not Found' % self.zoneid)
-            sys.exit(1)
-        response = conn.get_all_rrsets(self.zoneid, 'A', self.domainname, maxitems=1)[0]
+            return None
+        return self.r53conn.get_all_rrsets(self.zoneid, 'A', self.domainname, maxitems=1)[0]
 
-        if current_ip not in response.resource_records:
-            self.logger.info('Found new IP: %s' % current_ip)
-
-            # Delete the old record, and create a new one.
-            # This code is from route53.py script, the change record command
-            changes = ResourceRecordSets(conn, self.zoneid, '')
-            change1 = changes.add_change("DELETE", self.domainname, 'A', response.ttl)
-            for old_value in response.resource_records:
-                change1.add_value(old_value)
-            change2 = changes.add_change("CREATE", self.domainname, 'A', response.ttl)
-            change2.add_value(current_ip)
-            commit = None
-            try:
-                commit = changes.commit()
-                self.logger.debug('%s' % commit)
-            except:
-                self.logger.error("Changes can't be made: %s" % commit)
+    def run_update(self):
+        if self.curr_eq_expct_ip():
+            self.logger.debug(
+                'No update needed'
+            )
+        else:
+            recordSets = self.get_zone_record()
+            if recordSets is None:
+                self.logger.error('Exiting')
                 sys.exit(1)
-            else:
 
-                change = conn.get_change(self.get_change_id(commit['ChangeResourceRecordSetsResponse']))
-                self.logger.debug('%s' % change)
+            elif self.current_ip not in recordSets.resource_records:
+                self.logger.info('Found new IP: %s' % self.current_ip)
 
-                while self.get_change_status(change['GetChangeResponse']) == 'PENDING':
-                    time.sleep(2)
-                    change = conn.get_change(self.get_change_id(change['GetChangeResponse']))
-                    self.logger.debug('%s' % change)
-                if self.get_change_status(change['GetChangeResponse']) == 'INSYNC':
-                    self.logger.info(
-                        'Change %s A de %s -> %s' % (self.domainname, response.resource_records[0], current_ip)
-                    )
+                # Delete the old record, and create a new one.
+                # This code is from route53.py script, the change record command
+                changes = ResourceRecordSets(self.r53conn, self.zoneid, '')
+                change1 = changes.add_change("DELETE", self.domainname, 'A', recordSets.ttl)
+                for old_value in recordSets.resource_records:
+                    change1.add_value(old_value)
+                change2 = changes.add_change("CREATE", self.domainname, 'A', recordSets.ttl)
+                change2.add_value(self.current_ip)
+                commit = None
+                try:
+                    commit = changes.commit()
+                    self.logger.debug('%s' % commit)
+                except:
+                    self.logger.error("Changes can't be made: %s" % commit)
+                    sys.exit(1)
                 else:
-                    self.logger.warning('Unknown status for the change: %s' % change)
+
+                    change = self.r53conn.get_change(self.get_change_id(commit['ChangeResourceRecordSetsResponse']))
                     self.logger.debug('%s' % change)
+
+                    while self.get_change_status(change['GetChangeResponse']) == 'PENDING':
+                        time.sleep(2)
+                        change = self.r53conn.get_change(self.get_change_id(change['GetChangeResponse']))
+                        self.logger.debug('%s' % change)
+                    if self.get_change_status(change['GetChangeResponse']) == 'INSYNC':
+                        self.logger.info(
+                            'Change %s A record %s -> %s' % (self.domainname,
+                                                             recordSets.resource_records[0],
+                                                             self.current_ip)
+                        )
+                    else:
+                        self.logger.warning('Unknown status for the change: %s' % change)
+                        self.logger.debug('%s' % change)
 
 
 if __name__ == '__main__':
@@ -141,4 +176,4 @@ if __name__ == '__main__':
     )
     args = parser.parse_args()
     updater = AWSroute53Update(args.zoneid, args.domainname, args.keyid, args.keysecret, args.debug)
-    updater.run()
+    updater.run_update()
