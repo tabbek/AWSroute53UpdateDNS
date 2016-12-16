@@ -151,11 +151,29 @@ class AWSroute53Update:
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('zoneid', help='Hosted Zone ID\nhttp://docs.aws.amazon.com/Route53/latest/DeveloperGuide/ListInfoOnHostedZone.html')
-    parser.add_argument('domainname', help='Domain name of the hosted zone to check/update\nhttp://docs.aws.amazon.com/Route53/latest/DeveloperGuide/AboutHZWorkingWith.html')
-    parser.add_argument('keyid', help='AWS access key ID')
-    parser.add_argument('keysecret', help='AWS secret access key')
-    parser.add_argument('-D','--debug', help="Increase logging to debug.", action="store_true")
+    parser.add_argument(
+        'zoneid',
+        help='Hosted Zone ID\n' +
+             'http://docs.aws.amazon.com/Route53/latest/DeveloperGuide/ListInfoOnHostedZone.html'
+    )
+    parser.add_argument(
+        'domainname',
+        help='Domain name of the hosted zone to check/update\n' +
+             'http://docs.aws.amazon.com/Route53/latest/DeveloperGuide/AboutHZWorkingWith.html'
+    )
+    parser.add_argument(
+        'keyid',
+        help='AWS access key ID'
+    )
+    parser.add_argument(
+        'keysecret',
+        help='AWS secret access key'
+    )
+    parser.add_argument(
+        '-D', '--debug',
+        help="Increase logging to debug.",
+        action="store_true"
+    )
     args = parser.parse_args()
     updater = AWSroute53Update(args.zoneid, args.domainname, args.keyid, args.keysecret, args.debug)
     updater.run_update()
